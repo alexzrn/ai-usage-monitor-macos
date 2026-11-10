@@ -10,11 +10,11 @@ jobs:
   build:
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build app bundle
         run: ./build.sh
       - name: Upload app bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ai-usage-monitor-macos
           path: build/AI Usage Monitor.app
