@@ -6,6 +6,19 @@ Desktop panel for recent sessions and provider usage from local AI coding agents
 
 The screenshot uses synthetic session names and token totals. It contains no account data or local history.
 
+<details>
+<summary>More app screenshots</summary>
+
+![Codex sessions and plan limits](docs/screenshots/codex.png)
+
+![Hermes sessions and provider limits](docs/screenshots/hermes.png)
+
+![OpenCode sessions and provider limits](docs/screenshots/opencode.png)
+
+![DeepSeek balance and linked sessions](docs/screenshots/deepseek.png)
+
+</details>
+
 ## Supported sources
 
 | Source | Automatic discovery | Data shown | Session link |
