@@ -1,0 +1,13 @@
+{
+  "providers": [
+    { "id": "openai-codex", "title": "OpenAI · Codex", "usageAdapter": "codex-rate-limits" },
+    { "id": "opencode-go", "title": "OpenCode Go", "usageAdapter": "hermes-opencode-go" },
+    { "id": "deepseek", "title": "DeepSeek API", "usageAdapter": "deepseek-balance" }
+  ],
+  "apps": [
+    { "id": "codex", "title": "Codex", "adapter": "codex", "providerIds": ["openai-codex"] },
+    { "id": "hermes", "title": "Hermes", "adapter": "hermes", "providerIds": ["opencode-go", "deepseek"], "discoverProviders": true },
+    { "id": "opencode", "title": "OpenCode", "adapter": "opencode", "providerIds": ["opencode-go", "deepseek"], "discoverProviders": true },
+    { "id": "deepseek", "title": "DeepSeek", "adapter": "provider-view", "providerIds": ["deepseek"], "providerFilter": "deepseek" }
+  ]
+}

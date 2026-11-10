@@ -1,0 +1,20 @@
+name: Build macOS app
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build app bundle
+        run: ./build.sh
+      - name: Upload app bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-usage-monitor-macos
+          path: build/AI Usage Monitor.app
