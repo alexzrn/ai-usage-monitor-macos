@@ -21,17 +21,17 @@ The screenshot uses synthetic session names and token totals. It contains no acc
 
 ## Supported sources
 
-| Source | Automatic discovery | Data shown | Session link |
-| --- | --- | --- | --- |
-| Codex | CLI in common install paths or `PATH`; newest `~/.codex/state_*.sqlite` | Recent threads; 5-hour and weekly limits from local rollout events | `codex resume <thread-id>` in Terminal |
-| Claude Code | CLI in common install paths or `PATH`; `~/.claude/projects/**/*.jsonl` | Recent saved sessions; input, output, and cache token totals from local transcripts | `claude --resume <session-id>` in Terminal |
-| Hermes | CLI and `~/.hermes/state.db` | Recent sessions grouped by `billing_provider` | `hermes --resume <session-id> chat` in Terminal |
-| OpenCode | CLI in common install paths or `PATH`; its local API | Recent sessions, model, provider, token counts, and cost when provided | Opens `opencode --session <id>` in the project directory |
-| OpenClaw | CLI in common install paths or `PATH` | `sessions --all-agents --json`; provider quota snapshots from `status --usage --json` | Opens `openclaw tui <session-key>` |
-| DeepSeek | Hermes provider credentials | Official API balance plus session-derived token and cost totals | Shows matching sessions from detected agents |
-| OpenCode Go | Hermes provider credentials and usage adapter | Provider-reported rolling, weekly, and monthly limits | Shows matching Hermes/OpenCode sessions |
+| Source | Automatic discovery | Data shown | Session link | Local verification |
+| --- | --- | --- | --- | --- |
+| Codex | CLI in common install paths or `PATH`; newest `~/.codex/state_*.sqlite` | Recent threads; 5-hour and weekly limits from local rollout events | `codex resume <thread-id>` in Terminal | Verified: sessions and limits |
+| Claude Code | CLI in common install paths or `PATH`; `~/.claude/projects/**/*.jsonl` | Recent saved sessions; input, output, and cache token totals from local transcripts | `claude --resume <session-id>` in Terminal | Detected: 3 transcripts; no account quota |
+| Hermes | CLI and `~/.hermes/state.db` | Recent sessions grouped by `billing_provider` | `hermes --resume <session-id> chat` in Terminal | Verified: sessions and DeepSeek balance |
+| OpenCode | CLI in common install paths or `PATH`; its local API | Recent sessions, model, provider, token counts, and cost when provided | Opens `opencode --session <id>` in the project directory | Verified: sessions |
+| OpenClaw | CLI in common install paths or `PATH` | `sessions --all-agents --json`; provider quota snapshots from `status --usage --json` | Opens `openclaw tui <session-key>` | Unverified: CLI unavailable locally |
+| DeepSeek | Hermes provider credentials | Official API balance plus session-derived token and cost totals | Shows matching sessions from detected agents | Verified: API balance and session totals |
+| OpenCode Go | Hermes provider credentials and usage adapter | Provider-reported rolling, weekly, and monthly limits | Shows matching Hermes/OpenCode sessions | Adapter ran; account returned HTTP 401 |
 
-Claude Code usage is derived from locally retained transcripts. It is not an Anthropic account quota, may include third-party models or providers, and reflects only transcript files that still exist locally. Sessions remain visible when their provider has no usage adapter. Such cards show an unavailable status instead of inventing a quota. The OpenClaw adapter follows the documented [sessions JSON](https://docs.openclaw.ai/cli/sessions), [usage JSON](https://docs.openclaw.ai/cli/status), and [TUI session target](https://docs.openclaw.ai/cli/tui) interfaces. OpenClaw is not installed on the machine used to capture the current preview, so that adapter has not been exercised against a live local installation.
+Local verification was performed on macOS on 2026-11-10. The Claude Code CLI was present and its adapter read three local transcripts; this verifies session and transcript parsing, not Anthropic account usage. OpenClaw is not installed here, so its adapter has not been exercised against a live installation. The Hermes and OpenCode session readers work; the configured OpenCode Go account currently returns HTTP 401, while the DeepSeek balance adapter returns account data. Sessions remain visible when their provider has no usage adapter, with an unavailable status instead of an invented quota. The OpenClaw adapter follows the documented [sessions JSON](https://docs.openclaw.ai/cli/sessions), [usage JSON](https://docs.openclaw.ai/cli/status), and [TUI session target](https://docs.openclaw.ai/cli/tui) interfaces.
 
 ## Install from source
 
@@ -66,7 +66,7 @@ The current release targets macOS only and is named accordingly. Windows and Lin
 
 ## Contributing
 
-Contributions are welcome. Open an issue to report a source format change or propose an adapter, then submit a pull request with a focused change. Keep provider-reported limits separate from session-derived totals, document the local files or official interface used, and include English, Russian, and Simplified Chinese strings for new UI. Never include API keys, personal session history, or screenshots containing private data.
+Contributions are welcome. If you have OpenClaw or another supported agent installed, please check session discovery, usage, and session links on your setup and report what works. Testing additional agents is welcome too. Open an issue with the OS, app and CLI versions, and a sanitized result; do not include API keys, prompts, personal session history, or screenshots containing private data. Pull requests should document the local files or official interface used, keep provider-reported limits separate from session totals, and include English, Russian, and Simplified Chinese strings for new UI.
 
 Build locally with `./build.sh` on macOS 14 or later. Before opening a pull request, confirm the app builds and that the affected source is represented in the README support table.
 
@@ -76,6 +76,10 @@ Build locally with `./build.sh` on macOS 14 or later. Before opening a pull requ
 
 Сборка: macOS 14+, Xcode Command Line Tools, затем `./build.sh`. Приложение обновляет данные раз в 30 секунд; интервал можно изменить в контекстном меню. Нажатие на сессию открывает соответствующий CLI с её ID или ключом и не отправляет запрос модели.
 
-Язык интерфейса выбирается по системному языку macOS. В комплект входят английский и русский; для остальных языков используется английский. Текущий выпуск поддерживает только macOS. Для Windows и Linux понадобятся отдельные оболочки и адаптеры системных источников; Linux-интеграция будет учитывать выбранную DE.
+Язык интерфейса выбирается по системному языку macOS: русский и упрощённый китайский поддерживаются, английский используется по умолчанию. Текущий выпуск поддерживает только macOS. Для Windows и Linux понадобятся отдельные оболочки и адаптеры системных источников; Linux-интеграция будет учитывать выбранную DE.
+
+Локальная проверка на macOS (10 ноября 2026): Codex показывает сессии и лимиты; Hermes и OpenCode читают сессии; баланс DeepSeek получен через API. Claude Code CLI обнаружен, адаптер прочитал три локальных транскрипта — квота Anthropic при этом не проверяется. OpenClaw локально не установлен и на живой системе не проверен. Usage OpenCode Go сейчас отвечает HTTP 401.
+
+Если у вас установлен OpenClaw или другой агент, проверьте обнаружение сессий, Usage и переход к сессии. Будем рады проверке других агентов и форматам источников. В issue укажите ОС, версии приложения и CLI, а результат обезличьте: не публикуйте ключи, prompts, личную историю и скриншоты с приватными данными.
 
 Скриншот демонстрационный: названия сессий и лимиты вымышлены. Баланс, API-ключи и личная история в репозиторий не включены.
