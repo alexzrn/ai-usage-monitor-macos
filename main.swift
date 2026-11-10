@@ -771,27 +771,35 @@ struct MonitorView: View {
         guard let app = selectedApp else { return L10n.text("app.status.none") }
         let providerIds = model.providers(for: app)
         let connected = providerIds.compactMap { model.snapshot.providerUsage[$0] }.filter(\.connected).count
-        return connected > 0 ? L10n.format("app.status.connected", connected) : L10n.text("app.status.waiting")
+        guard connected > 0 else { return L10n.text("app.status.waiting") }
+        return connected == 1 ? L10n.text("app.status.connected.one") : L10n.format("app.status.connected.many", connected)
     }
 
     private var appTabs: some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: 4) {
-                ForEach(model.visibleApps) { app in
-                    Button { model.selectedApp = app.id } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: icon(for: app.id)).font(.system(size: 10, weight: .semibold))
-                            Text(app.title).font(.system(size: 10, weight: .semibold))
-                        }
-                        .padding(.horizontal, 10).padding(.vertical, 8)
-                        .foregroundStyle(model.selectedApp == app.id ? .white : .white.opacity(0.58))
-                        .background(model.selectedApp == app.id ? .white.opacity(0.17) : .clear, in: Capsule())
-                    }.buttonStyle(.plain)
-                }
-            }.padding(4)
+        ViewThatFits(in: .horizontal) {
+            tabRow(compact: true)
+            ScrollView(.horizontal) { tabRow(compact: false) }
+                .scrollIndicators(.hidden)
         }
-        .scrollIndicators(.hidden)
         .background(.white.opacity(0.07), in: Capsule())
+    }
+
+    private func tabRow(compact: Bool) -> some View {
+        HStack(spacing: compact ? 2 : 4) {
+            ForEach(model.visibleApps) { app in
+                Button { model.selectedApp = app.id } label: {
+                    HStack(spacing: compact ? 4 : 6) {
+                        Image(systemName: icon(for: app.id)).font(.system(size: 9, weight: .semibold))
+                        Text(app.title).font(.system(size: compact ? 9 : 10, weight: .semibold))
+                            .lineLimit(1).minimumScaleFactor(0.78)
+                    }
+                    .frame(maxWidth: compact ? .infinity : nil)
+                    .padding(.horizontal, compact ? 6 : 10).padding(.vertical, 8)
+                    .foregroundStyle(model.selectedApp == app.id ? .white : .white.opacity(0.58))
+                    .background(model.selectedApp == app.id ? .white.opacity(0.17) : .clear, in: Capsule())
+                }.buttonStyle(.plain)
+            }
+        }.padding(4)
     }
 
     @ViewBuilder private func providerCards(for app: AppDefinition) -> some View {

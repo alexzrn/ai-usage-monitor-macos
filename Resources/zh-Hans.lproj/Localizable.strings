@@ -1,6 +1,7 @@
 "app.status.none" = "未检测到数据源";
 "app.status.waiting" = "正在等待数据";
-"app.status.connected" = "已连接 %d 个提供商";
+"app.status.connected.one" = "已连接 1 个提供商";
+"app.status.connected.many" = "已连接 %d 个提供商";
 "action.refresh" = "刷新所有数据源";
 "action.quit" = "退出";
 "menu.refresh.interval" = "刷新间隔";
@@ -48,7 +49,7 @@
 "error.openclaw.sessions" = "无法读取 OpenClaw 会话";
 "error.openclaw.no_sessions" = "未找到 OpenClaw 会话或用量数据";
 "error.openclaw.usage" = "无法读取 OpenClaw 提供商用量";
-"error.opencgo.unauthorized" = "OpenCode Go 拒绝了账户凭据 (HTTP 401)";
+"error.opencgo.unauthorized" = "OpenCode Go 拒绝了 Hermes 密钥 (HTTP 401)。请在 Hermes 中重新连接该提供商。";
 "error.http_status" = "用量 API 返回 HTTP %@";
 "provider.deepseek" = "DeepSeek API";
 "provider.openai_codex" = "OpenAI · Codex";

@@ -1,6 +1,7 @@
 "app.status.none" = "No sources detected";
 "app.status.waiting" = "Waiting for data";
-"app.status.connected" = "%d provider(s) connected";
+"app.status.connected.one" = "1 provider connected";
+"app.status.connected.many" = "%d providers connected";
 "action.refresh" = "Refresh all sources";
 "action.quit" = "Quit";
 "menu.refresh.interval" = "Refresh interval";
@@ -48,7 +49,7 @@
 "error.openclaw.sessions" = "Could not read OpenClaw sessions";
 "error.openclaw.no_sessions" = "No OpenClaw sessions or usage data were found";
 "error.openclaw.usage" = "Could not read OpenClaw provider usage";
-"error.opencgo.unauthorized" = "OpenCode Go rejected the configured account credentials (HTTP 401)";
+"error.opencgo.unauthorized" = "OpenCode Go rejected the Hermes key (HTTP 401). Reconnect the provider in Hermes.";
 "error.http_status" = "Usage API returned HTTP %@";
 "provider.deepseek" = "DeepSeek API";
 "provider.openai_codex" = "OpenAI · Codex";

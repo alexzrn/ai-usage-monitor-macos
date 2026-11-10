@@ -1,6 +1,7 @@
 "app.status.none" = "Источники не найдены";
 "app.status.waiting" = "Ожидание данных";
-"app.status.connected" = "Подключено провайдеров: %d";
+"app.status.connected.one" = "Подключён 1 провайдер";
+"app.status.connected.many" = "Подключено провайдеров: %d";
 "action.refresh" = "Обновить все источники";
 "action.quit" = "Выйти";
 "menu.refresh.interval" = "Интервал обновления";
@@ -48,7 +49,7 @@
 "error.openclaw.sessions" = "Не удалось прочитать сессии OpenClaw";
 "error.openclaw.no_sessions" = "Не найдены сессии или данные Usage OpenClaw";
 "error.openclaw.usage" = "Не удалось прочитать Usage провайдеров OpenClaw";
-"error.opencgo.unauthorized" = "OpenCode Go отклонил credentials аккаунта (HTTP 401)";
+"error.opencgo.unauthorized" = "OpenCode Go отклонил ключ Hermes (HTTP 401). Переподключите провайдера в Hermes.";
 "error.http_status" = "Usage API ответил HTTP %@";
 "provider.deepseek" = "DeepSeek API";
 "provider.openai_codex" = "OpenAI · Codex";
