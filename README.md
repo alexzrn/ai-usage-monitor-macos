@@ -2,9 +2,9 @@
 
 Desktop panel for recent sessions and provider usage from local AI coding agents. The v0.1 client is a native macOS app. Its session and provider adapters are kept separate from the view so additional agents can be added without changing the app model.
 
-![AI Usage Monitor](docs/screenshots/overview.png)
+![AI Usage Monitor showing Claude Code sessions and local token usage](docs/screenshots/overview.png)
 
-The screenshot uses sample session names and sample limit values. It contains no account data.
+The screenshot uses synthetic session names and token totals. It contains no account data or local history.
 
 ## Supported sources
 
@@ -35,7 +35,7 @@ The app uses SwiftUI and AppKit. It refreshes every 30 seconds by default. Right
 
 ## Language
 
-The interface follows the macOS preferred language. English and Russian strings are included. If the preferred language is not included, macOS uses English.
+The interface follows the macOS preferred language: Russian and Simplified Chinese are supported. English is the default for all other languages. Product names, model names, and provider names remain in their original form.
 
 ## Discovery and extension
 
@@ -51,9 +51,15 @@ The current release targets macOS only and is named accordingly. Windows and Lin
 - Some providers expose only quota windows or balances, not complete historical spend. Session-derived totals are labeled separately from provider-reported values.
 - A public source repository is provided without an open-source license.
 
+## Contributing
+
+Contributions are welcome. Open an issue to report a source format change or propose an adapter, then submit a pull request with a focused change. Keep provider-reported limits separate from session-derived totals, document the local files or official interface used, and include English, Russian, and Simplified Chinese strings for new UI. Never include API keys, personal session history, or screenshots containing private data.
+
+Build locally with `./build.sh` on macOS 14 or later. Before opening a pull request, confirm the app builds and that the affected source is represented in the README support table.
+
 ## Русский
 
-Нативная панель macOS для сессий локальных coding-агентов и Usage их провайдеров. Версия автоматически обнаруживает Codex, Claude Code, Hermes, OpenCode и OpenClaw по локальным CLI и базам. Для Claude Code usage считается по сохранённым локальным транскриптам и не является квотой Anthropic. Провайдеры определяются по метаданным сессий. DeepSeek подключается через credentials Hermes.
+Нативная панель macOS для сессий локальных coding-агентов и Usage их провайдеров. Версия автоматически обнаруживает Codex, Claude Code, Hermes, OpenCode и OpenClaw по локальным CLI и базам. Для Claude Code usage считается по сохранённым локальным транскриптам и не является квотой Anthropic. Провайдеры определяются по метаданным сессий. DeepSeek подключается через credentials Hermes. Интерфейс выбирает русский или упрощённый китайский по языку macOS; для остальных языков используется английский.
 
 Сборка: macOS 14+, Xcode Command Line Tools, затем `./build.sh`. Приложение обновляет данные раз в 30 секунд; интервал можно изменить в контекстном меню. Нажатие на сессию открывает соответствующий CLI с её ID или ключом и не отправляет запрос модели.
 
