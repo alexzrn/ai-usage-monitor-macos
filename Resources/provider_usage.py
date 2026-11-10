@@ -16,7 +16,7 @@ try:
     snapshot = module.opencode_go.fetch_account_usage()
     if snapshot:
         windows = []
-        for key, label in (("rolling", "5 ЧАСОВ"), ("weekly", "НЕДЕЛЯ"), ("monthly", "МЕСЯЦ")):
+        for key, label in (("rolling", "rolling"), ("weekly", "weekly"), ("monthly", "monthly")):
             source_label = {"rolling": "Rolling window", "weekly": "Weekly", "monthly": "Monthly"}[key]
             row = next((w for w in snapshot.windows if w.label == source_label), None)
             if row:

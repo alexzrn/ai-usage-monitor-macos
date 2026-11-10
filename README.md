@@ -1,69 +1,61 @@
-# AI Usage Monitor
+# AI Usage Monitor for macOS
 
-Native macOS desktop monitor for local coding agents and their model providers. It combines recent sessions and provider usage in a compact, translucent panel.
+Desktop panel for recent sessions and provider usage from local AI coding agents. The v0.1 client is a native macOS app. Its session and provider adapters are kept separate from the view so additional agents can be added without changing the app model.
 
-![AI Usage Monitor on macOS](docs/screenshots/overview.png)
+![AI Usage Monitor](docs/screenshots/overview.png)
 
-The screenshot uses sample session labels and sample usage values; it contains no account data.
+The screenshot uses sample session names and sample limit values. It contains no account data.
 
-## Features
+## Supported sources
 
-- App tabs for Codex, Hermes, OpenCode, and provider-wide DeepSeek activity.
-- Provider cards pair usage with the latest sessions routed through that provider.
-- Automatic provider discovery from Hermes and OpenCode session metadata.
-- DeepSeek balance from the official API, using credentials already configured in Hermes.
-- Session rows open the matching CLI session in Terminal when the CLI supports resuming by ID.
-- Refresh every 30 seconds by default; 15, 30, 60, and 120 second intervals are available from the panel context menu.
-- The panel starts at the lower-left of the main display.
+| Source | Automatic discovery | Data shown | Session link |
+| --- | --- | --- | --- |
+| Codex | CLI in common install paths or `PATH`; newest `~/.codex/state_*.sqlite` | Recent threads; 5-hour and weekly limits from local rollout events | `codex resume <thread-id>` in Terminal |
+| Hermes | CLI and `~/.hermes/state.db` | Recent sessions grouped by `billing_provider` | `hermes --resume <session-id> chat` in Terminal |
+| OpenCode | CLI in common install paths or `PATH`; its local API | Recent sessions, model, provider, token counts, and cost when provided | Opens `opencode --session <id>` in the project directory |
+| OpenClaw | CLI in common install paths or `PATH` | `sessions --all-agents --json`; provider quota snapshots from `status --usage --json` | Opens `openclaw tui <session-key>` |
+| DeepSeek | Hermes provider credentials | Official API balance plus session-derived token and cost totals | Shows matching sessions from detected agents |
+| OpenCode Go | Hermes provider credentials and usage adapter | Provider-reported rolling, weekly, and monthly limits | Shows matching Hermes/OpenCode sessions |
 
-## Build and run
+Sessions remain visible when their provider has no usage adapter. Such cards show an unavailable status instead of inventing a quota. The OpenClaw adapter follows the documented [sessions JSON](https://docs.openclaw.ai/cli/sessions), [usage JSON](https://docs.openclaw.ai/cli/status), and [TUI session target](https://docs.openclaw.ai/cli/tui) interfaces. OpenClaw is not installed on the machine used to capture the current preview, so that adapter has not been exercised against a live local installation.
 
-Requirements: macOS 14 or later, Xcode Command Line Tools, and the local apps or CLIs you want to monitor.
+## Install from source
+
+Requirements: macOS 14 or later and Xcode Command Line Tools. Provider CLIs are optional; only installed sources appear with data.
 
 ```sh
+git clone https://github.com/alexzrn/ai-usage-monitor-macos.git
+cd ai-usage-monitor-macos
 ./build.sh
 open "build/AI Usage Monitor.app"
 ```
 
-The app is built with Swift and SwiftUI; it has no third-party runtime dependencies. To quit, use the panel context menu or the app menu.
+The app uses SwiftUI and AppKit. It refreshes every 30 seconds by default. Right-click the panel to refresh, choose 15/30/60/120-second intervals, or quit. Session rows open the corresponding local CLI in Terminal; selecting a row does not send a prompt.
 
-## Data sources and session actions
+## Language
 
-| App or provider | Discovery and usage | Session action |
-| --- | --- | --- |
-| Codex | Reads the newest `~/.codex/state_*.sqlite` database and local rollout events for rate limits. | `codex resume <session-id>` in Terminal. |
-| Hermes | Reads `~/.hermes/state.db`; groups sessions by `billing_provider`. | `hermes --resume <session-id> chat` in Terminal. |
-| OpenCode | Uses the installed `opencode` CLI to read local API sessions and provider/model metadata. | Opens `opencode --session <session-id>` in the session's project directory. |
-| OpenCode Go | Reuses the Hermes OpenCode Zen account usage integration and existing credential pool. | Recent Hermes/OpenCode sessions using this provider. |
-| DeepSeek | Calls `GET https://api.deepseek.com/user/balance` with the key resolved from Hermes credentials. Session token and cost totals are calculated from local records. | The DeepSeek tab combines recent DeepSeek sessions across detected apps. |
+The interface follows the macOS preferred language. English and Russian strings are included. If the preferred language is not included, macOS uses English.
 
-If an app or provider is unavailable, its card remains visible with an explicit status. Session metadata that identifies an unknown provider is still shown; provider usage requires a usage adapter. A standalone DeepSeek CLI is not required.
+## Discovery and extension
 
-## Extending discovery
+`Resources/registry.json` defines app tabs and known provider relationships. Collectors inspect only documented local stores and installed CLIs. Provider IDs found in session metadata are added to that app's tab automatically. New agents need a session collector; new provider quota sources need a usage adapter. See [`docs/architecture/platforms.md`](docs/architecture/platforms.md) for the platform scope and expansion path.
 
-`Resources/registry.json` declares app tabs, provider relationships, and adapter names. Add an app adapter to read another local session store, or a provider usage adapter to expose that provider's usage. Session-derived providers are added to the app view automatically. Credentials should be resolved from the source app's existing credential store and must never be copied into this app's config or logs.
+The current release targets macOS only and is named accordingly. Windows and Linux need their own desktop shell and local-source adapters. Linux DE support will require separate integration choices (for example, a KDE Plasma widget or GNOME Shell extension); the macOS SwiftUI panel cannot run there.
 
-This adapter boundary is intended to support additional local agents such as OpenClaw without coupling the UI to one provider or agent.
+## Privacy and limitations
 
-## Privacy
-
-Session titles, project paths, token counts, costs, and account balances are read locally. DeepSeek balance requests go directly from this Mac to the DeepSeek API. Credentials are obtained through Hermes and are not rendered, persisted by this app, or included in the helper's JSON output. The app does not upload telemetry.
-
-The frozen first prototype is preserved in [`prototype-v1/`](prototype-v1/).
-
----
+- Session titles, project paths, models, token counts, and costs are read locally.
+- DeepSeek balance requests go directly from this Mac to the DeepSeek API. The key is resolved from Hermes and is neither displayed nor saved by this app.
+- The app sends no telemetry.
+- Some providers expose only quota windows or balances, not complete historical spend. Session-derived totals are labeled separately from provider-reported values.
+- A public source repository is provided without an open-source license.
 
 ## Русский
 
-Нативный монитор для macOS: вкладки локальных coding-агентов, карточки провайдеров, их Usage и недавние сессии. Вкладка DeepSeek показывает официальный баланс и сессии DeepSeek из доступных приложений.
+Нативная панель macOS для сессий локальных coding-агентов и Usage их провайдеров. Первая версия автоматически обнаруживает Codex, Hermes, OpenCode и OpenClaw по локальным CLI и базам. Провайдеры определяются по метаданным сессий. DeepSeek подключается через credentials Hermes.
 
-Собрать и запустить:
+Сборка: macOS 14+, Xcode Command Line Tools, затем `./build.sh`. Приложение обновляет данные раз в 30 секунд; интервал можно изменить в контекстном меню. Нажатие на сессию открывает соответствующий CLI с её ID или ключом и не отправляет запрос модели.
 
-```sh
-./build.sh
-open "build/AI Usage Monitor.app"
-```
+Язык интерфейса выбирается по системному языку macOS. В комплект входят английский и русский; для остальных языков используется английский. Текущий выпуск поддерживает только macOS. Для Windows и Linux понадобятся отдельные оболочки и адаптеры системных источников; Linux-интеграция будет учитывать выбранную DE.
 
-По умолчанию панель обновляется раз в 30 секунд и располагается внизу слева. Доступны интервалы 15, 30, 60 и 120 секунд. Нажатие на сессию открывает её через соответствующий CLI в Terminal, если источник поддерживает восстановление по ID. Codex, Hermes и OpenCode определяются по локальным CLI и базам данных; провайдеры из сессий обнаруживаются автоматически. Для OpenClaw и других агентов добавляются адаптеры чтения их локальных данных.
-
-Скриншот содержит демонстрационные названия сессий. Реальные названия, пути проектов, Usage и баланс читаются с локального Mac. Баланс DeepSeek запрашивается с официального API, ключ берётся из настроек Hermes и не сохраняется приложением.
+Скриншот демонстрационный: названия сессий и лимиты вымышлены. Баланс, API-ключи и личная история в репозиторий не включены.

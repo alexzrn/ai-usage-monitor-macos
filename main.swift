@@ -1,6 +1,31 @@
 import AppKit
 import SwiftUI
 
+private enum L10n {
+    static func text(_ key: String) -> String {
+        NSLocalizedString(key, bundle: .main, value: key, comment: "")
+    }
+
+    static func format(_ key: String, _ arguments: CVarArg...) -> String {
+        String(format: text(key), locale: .current, arguments: arguments)
+    }
+
+    static func displayError(_ raw: String) -> String {
+        if raw.contains("HTTP 401") { return text("error.opencgo.unauthorized") }
+        if raw.contains("HTTP "), let status = raw.split(separator: " ").last { return format("error.http_status", String(status)) }
+        switch raw {
+        case "OpenCode Go CLI was not found", "Hermes CLI не найден": return text("error.hermes.missing")
+        case "OpenClaw CLI was not found": return text("error.openclaw.missing")
+        case "Could not read OpenClaw sessions": return text("error.openclaw.sessions")
+        case "Could not read OpenClaw provider usage": return text("error.openclaw.usage")
+        case "Не удалось получить Usage OpenCode Go": return text("error.usage.opencgo")
+        case "Не удалось получить баланс DeepSeek": return text("error.usage.deepseek")
+        case "Для этого провайдера ещё нет Usage-адаптера", "Usage недоступен для этого провайдера": return text("provider.unsupported")
+        default: return raw
+        }
+    }
+}
+
 struct ProviderDefinition: Decodable, Identifiable, Equatable {
     let id: String
     let title: String
@@ -98,6 +123,8 @@ struct MonitorSession: Identifiable, Equatable {
 struct MonitorSnapshot {
     var sessions: [MonitorSession] = []
     var providerUsage: [String: ProviderSnapshot] = [:]
+    var sourceProviderIds: [String: [String]] = [:]
+    var sourceErrors: [String: String] = [:]
     var updatedAt = Date()
 }
 
@@ -145,6 +172,7 @@ final class MonitorModel: ObservableObject {
         if app.discoverProviders {
             ids += snapshot.sessions.filter { $0.appId == app.id }.map(\.providerId)
         }
+        ids += snapshot.sourceProviderIds[app.id] ?? []
         return Array(NSOrderedSet(array: ids)).compactMap { $0 as? String }
     }
 
@@ -156,12 +184,16 @@ final class MonitorModel: ObservableObject {
         let codex = readCodex()
         let hermes = readHermes()
         let opencode = readOpenCode()
-        let sessions = (codex.sessions + hermes + opencode).sorted {
+        let openclaw = readOpenClaw()
+        let sessions = (codex.sessions + hermes + opencode + openclaw.sessions).sorted {
             ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast)
         }
 
         var usage = readProviderUsage()
         usage["openai-codex"] = codex.usage
+        for (provider, snapshot) in openclaw.usage where usage[provider] == nil {
+            usage[provider] = snapshot
+        }
         // Provider definitions may be extended in registry.json; currently supported adapters
         // are resolved explicitly, while unknown providers remain visible with an honest status.
         for provider in registry.providers where usage[provider.id] == nil {
@@ -170,10 +202,13 @@ final class MonitorModel: ObservableObject {
         for session in sessions where usage[session.providerId] == nil {
             usage[session.providerId] = ProviderSnapshot(connected: false, error: "Usage недоступен для этого провайдера")
         }
-        return MonitorSnapshot(sessions: sessions, providerUsage: usage, updatedAt: Date())
+        return MonitorSnapshot(sessions: sessions, providerUsage: usage,
+                               sourceProviderIds: ["openclaw": Array(openclaw.usage.keys)],
+                               sourceErrors: openclaw.error.map { ["openclaw": $0] } ?? [:], updatedAt: Date())
     }
 
-    nonisolated private static func run(_ executable: String, _ arguments: [String]) -> Data? {
+    nonisolated private static func run(_ executable: String, _ arguments: [String],
+                                       timeout: TimeInterval = 15, acceptNonzero: Bool = false) -> Data? {
         guard FileManager.default.isExecutableFile(atPath: executable) else { return nil }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
@@ -184,9 +219,12 @@ final class MonitorModel: ObservableObject {
         process.standardError = FileHandle.nullDevice
         do {
             try process.run()
+            let timeoutWork = DispatchWorkItem { if process.isRunning { process.terminate() } }
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timeoutWork)
             let data = output.fileHandleForReading.readDataToEndOfFile()
             process.waitUntilExit()
-            return process.terminationStatus == 0 ? data : nil
+            timeoutWork.cancel()
+            return process.terminationStatus == 0 || acceptNonzero ? data : nil
         } catch { return nil }
     }
 
@@ -215,7 +253,7 @@ final class MonitorModel: ObservableObject {
         let sql = "SELECT id,title,cwd,updated_at_ms,model,rollout_path FROM threads WHERE archived=0 ORDER BY updated_at_ms DESC LIMIT 16;"
         let rows = sqliteRows(sql)
         let sessions = rows.prefix(8).map { row -> MonitorSession in
-            let title = shortTitle(row["title"] as? String ?? "Сессия Codex")
+            let title = shortTitle(row["title"] as? String ?? "Codex session")
             let cwd = row["cwd"] as? String ?? "Codex"
             let project = shortPath(cwd)
             let updated = (row["updated_at_ms"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }
@@ -232,18 +270,18 @@ final class MonitorModel: ObservableObject {
             var metrics: [UsageMetric] = []
             if let primary = rateLimits["primary"] as? [String: Any],
                let percent = (primary["used_percent"] as? NSNumber)?.doubleValue {
-                metrics.append(rateMetric(id: "five-hour", label: "5 ЧАСОВ", data: primary, percent: percent))
+                metrics.append(rateMetric(id: "five-hour", label: L10n.text("usage.five_hours"), data: primary, percent: percent))
             }
             if let secondary = rateLimits["secondary"] as? [String: Any],
                let percent = (secondary["used_percent"] as? NSNumber)?.doubleValue {
-                metrics.append(rateMetric(id: "weekly", label: "НЕДЕЛЯ", data: secondary, percent: percent))
+                metrics.append(rateMetric(id: "weekly", label: L10n.text("usage.week"), data: secondary, percent: percent))
             }
             snapshot = ProviderSnapshot(connected: !metrics.isEmpty, metrics: metrics, updatedAt: Date(),
-                                        error: metrics.isEmpty ? "Лимиты появятся после следующего ответа Codex" : nil,
-                                        note: "План Codex · \(plan)")
+                                        error: metrics.isEmpty ? L10n.text("error.codex.limits_pending") : nil,
+                                        note: L10n.format("usage.codex.plan", plan))
             if snapshot.connected { break }
         }
-        if !snapshot.connected && rows.isEmpty { snapshot.error = "Локальная история Codex не найдена" }
+        if !snapshot.connected && rows.isEmpty { snapshot.error = L10n.text("error.codex.history_missing") }
         return (sessions, snapshot)
     }
 
@@ -280,7 +318,7 @@ final class MonitorModel: ObservableObject {
             let estimated = (row["estimated_cost_usd"] as? NSNumber)?.doubleValue
             return MonitorSession(id: "hermes-\(row["id"] as? String ?? UUID().uuidString)", appId: "hermes",
                                   appTitle: "Hermes", providerId: provider,
-                                  title: shortTitle(row["title"] as? String ?? "Сессия Hermes"),
+                                  title: shortTitle(row["title"] as? String ?? "Hermes session"),
                                   project: shortPath(row["cwd"] as? String ?? row["source"] as? String ?? "Hermes"),
                                   workingDirectory: row["cwd"] as? String,
                                   model: row["model"] as? String ?? "—",
@@ -306,12 +344,70 @@ final class MonitorModel: ObservableObject {
             let modelName = model["id"] as? String ?? "—"
             return MonitorSession(id: "opencode-\(row["id"] as? String ?? UUID().uuidString)", appId: "opencode",
                                   appTitle: "OpenCode", providerId: provider,
-                                  title: shortTitle(row["title"] as? String ?? "Сессия OpenCode"),
+                                  title: shortTitle(row["title"] as? String ?? "OpenCode session"),
                                   project: shortPath(location["directory"] as? String ?? "OpenCode"),
                                   workingDirectory: location["directory"] as? String,
                                   model: modelName, updatedAt: millis.map { Date(timeIntervalSince1970: $0 / 1000) },
                                   tokenCount: tokenCount, costUSD: (row["cost"] as? NSNumber)?.doubleValue)
         }
+    }
+
+    nonisolated private static func readOpenClaw() -> (sessions: [MonitorSession], usage: [String: ProviderSnapshot], error: String?) {
+        let home = NSHomeDirectory()
+        let candidates = ["\(home)/.local/bin/openclaw", "\(home)/.npm-global/bin/openclaw",
+                          "/opt/homebrew/bin/openclaw", "/usr/local/bin/openclaw", "/usr/bin/openclaw"]
+        guard let cli = executable(named: "openclaw", candidates: candidates) else {
+            return ([], [:], L10n.text("error.openclaw.missing"))
+        }
+
+        let sessionData = run(cli, ["sessions", "--all-agents", "--limit", "100", "--json"], timeout: 12)
+        let sessionObject = jsonObject(sessionData) as? [String: Any]
+        let sessionRows = sessionObject?["sessions"] as? [[String: Any]] ?? []
+        let sessions = sessionRows.compactMap { row -> MonitorSession? in
+            guard let key = row["key"] as? String else { return nil }
+            let model = row["model"] as? String ?? "—"
+            let provider = normalizedProvider(row["provider"] as? String ?? String(model.split(separator: "/").first ?? "unknown"))
+            let agent = row["agentId"] as? String ?? "OpenClaw"
+            let title = row["label"] as? String ?? row["displayName"] as? String ?? row["name"] as? String ?? key
+            let workspace = row["workspace"] as? String ?? row["workspaceDir"] as? String
+            let tokens = (row["totalTokens"] as? NSNumber)?.intValue ?? 0
+            let cost = (row["costUSD"] as? NSNumber)?.doubleValue ?? (row["cost"] as? NSNumber)?.doubleValue
+            let updated = parseDate(row["updatedAt"] ?? row["updatedAtMs"])
+            return MonitorSession(id: key, appId: "openclaw", appTitle: "OpenClaw", providerId: provider,
+                                  title: shortTitle(title), project: workspace.map(shortPath) ?? "agent: \(agent)",
+                                  workingDirectory: workspace, model: model, updatedAt: updated,
+                                  tokenCount: tokens, costUSD: cost)
+        }
+
+        let statusData = run(cli, ["status", "--usage", "--json", "--timeout", "5000"], timeout: 12, acceptNonzero: true)
+        let status = jsonObject(statusData) as? [String: Any] ?? [:]
+        let usageRoot = status["usage"] as? [String: Any] ?? status
+        let providers = usageRoot["providers"] as? [[String: Any]] ?? []
+        var usage: [String: ProviderSnapshot] = [:]
+        for row in providers {
+            guard let rawId = row["provider"] as? String else { continue }
+            let id = normalizedProvider(rawId)
+            let windows = row["windows"] as? [[String: Any]] ?? []
+            let metrics = windows.compactMap { window -> UsageMetric? in
+                guard let label = window["label"] as? String,
+                      let percent = ((window["usedPercent"] ?? window["percent"]) as? NSNumber)?.doubleValue else { return nil }
+                let reset = parseDate(window["resetAt"] ?? window["resetsAt"])
+                return UsageMetric(id: "openclaw-\(id)-\(label)", label: label, percent: percent, resetAt: reset)
+            }
+            let plan = row["plan"] as? String
+            let note = [row["displayName"] as? String, plan].compactMap { $0 }.joined(separator: " · ")
+            usage[id] = ProviderSnapshot(connected: !metrics.isEmpty, metrics: metrics, updatedAt: Date(),
+                                         error: row["error"] as? String, note: note.isEmpty ? nil : note)
+        }
+        let error: String?
+        if sessionData == nil || sessionObject == nil {
+            error = L10n.text("error.openclaw.sessions")
+        } else if sessions.isEmpty && usage.isEmpty {
+            error = L10n.text("error.openclaw.no_sessions")
+        } else {
+            error = nil
+        }
+        return (sessions, usage, error)
     }
 
     nonisolated private static func readProviderUsage() -> [String: ProviderSnapshot] {
@@ -339,9 +435,8 @@ final class MonitorModel: ObservableObject {
             }
             if python != nil { break }
         }
-        let helper = Bundle.main.resourceURL?.appendingPathComponent("provider_usage.py").path
-            ?? "\(home)/Projects/opencode-desk/Resources/provider_usage.py"
-        guard let python, let data = run(python, ["-I", helper]),
+        guard let helper = Bundle.main.resourceURL?.appendingPathComponent("provider_usage.py").path,
+              let python, let data = run(python, ["-I", helper]),
               let doc = jsonObject(data) as? [String: Any], let providers = doc["providers"] as? [String: Any] else {
             return ["opencode-go": ProviderSnapshot(error: "Не удалось получить Usage OpenCode Go"),
                     "deepseek": ProviderSnapshot(error: "Не удалось получить баланс DeepSeek")]
@@ -353,12 +448,14 @@ final class MonitorModel: ObservableObject {
                 guard let id = row["id"] as? String, let label = row["label"] as? String,
                       let percent = (row["percent"] as? NSNumber)?.doubleValue else { return nil }
                 let epoch = (row["reset_epoch"] as? NSNumber)?.doubleValue
-                return UsageMetric(id: id, label: label, percent: percent, resetAt: epoch.map { Date(timeIntervalSince1970: $0) })
+                let localizedLabel = ["rolling": "usage.five_hours", "weekly": "usage.week", "monthly": "usage.month"][id]
+                    .map(L10n.text) ?? label
+                return UsageMetric(id: id, label: localizedLabel, percent: percent, resetAt: epoch.map { Date(timeIntervalSince1970: $0) })
             }
             output["opencode-go"] = ProviderSnapshot(connected: go["ok"] as? Bool == true,
                                                       metrics: metrics, updatedAt: Date(),
                                                       error: go["error"] as? String,
-                                                      note: "Квоты аккаунта OpenCode Go")
+                                                      note: L10n.text("usage.opencode.plan"))
         }
         if let deepseek = providers["deepseek"] as? [String: Any] {
             let balances = deepseek["balances"] as? [[String: Any]] ?? []
@@ -366,15 +463,15 @@ final class MonitorModel: ObservableObject {
                 guard let currency = row["currency"] as? String, let total = row["total"] as? String else { return nil }
                 let granted = row["granted"] as? String ?? "0"
                 let topped = row["topped_up"] as? String ?? "0"
-                return UsageMetric(id: "balance-\(currency.lowercased())", label: "БАЛАНС · \(currency)",
+                return UsageMetric(id: "balance-\(currency.lowercased())", label: L10n.format("usage.balance", currency),
                                    value: "\(currency == "USD" ? "$" : "")\(total)\(currency == "CNY" ? " ¥" : "")",
-                                   detail: "грант \(granted) · пополнено \(topped)")
+                                   detail: L10n.format("usage.grant", granted, topped))
             }
             let available = deepseek["available"] as? Bool ?? false
             output["deepseek"] = ProviderSnapshot(connected: deepseek["ok"] as? Bool == true,
                                                    metrics: metrics, updatedAt: Date(),
                                                    error: deepseek["error"] as? String,
-                                                   note: available ? "API доступен" : "Баланс исчерпан или недоступен")
+                                                   note: L10n.text(available ? "usage.account.available" : "usage.account.unavailable"))
         }
         return output
     }
@@ -387,33 +484,56 @@ final class MonitorModel: ObservableObject {
         return key
     }
 
+    nonisolated private static func parseDate(_ value: Any?) -> Date? {
+        if let number = value as? NSNumber {
+            let epoch = number.doubleValue
+            return Date(timeIntervalSince1970: epoch > 10_000_000_000 ? epoch / 1000 : epoch)
+        }
+        guard let string = value as? String else { return nil }
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = fractional.date(from: string) { return date }
+        return ISO8601DateFormatter().date(from: string)
+    }
+
     nonisolated static func executableForAction(_ app: String, home: String) -> String? {
-        let name = app == "hermes" ? "hermes" : app == "codex" ? "codex" : "opencode"
+        let name = app == "hermes" ? "hermes" : app == "codex" ? "codex" : app == "openclaw" ? "openclaw" : "opencode"
         let candidates: [String]
         switch app {
         case "hermes": candidates = ["\(home)/.local/bin/hermes", "/opt/homebrew/bin/hermes", "/usr/local/bin/hermes"]
         case "codex": candidates = ["\(home)/.local/bin/codex", "/opt/homebrew/bin/codex", "/usr/local/bin/codex"]
+        case "openclaw": candidates = ["\(home)/.local/bin/openclaw", "\(home)/.npm-global/bin/openclaw", "/opt/homebrew/bin/openclaw", "/usr/local/bin/openclaw"]
         default: candidates = ["\(home)/.local/bin/opencode", "/opt/homebrew/bin/opencode", "/usr/local/bin/opencode"]
         }
-        let pathEntries = (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").map(String.init)
-        return (candidates + pathEntries.map { "\($0)/\(name)" }).first {
-            FileManager.default.isExecutableFile(atPath: $0)
-        }
+        return executable(named: name, candidates: candidates)
     }
 
     nonisolated private static func executable(named name: String, candidates: [String]) -> String? {
+        let home = NSHomeDirectory()
         let pathEntries = (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").map(String.init)
-        return (candidates + pathEntries.map { "\($0)/\(name)" }).first {
+        var managedDirectories = ["\(home)/.npm-global/bin", "\(home)/.volta/bin", "\(home)/.bun/bin",
+                                  "\(home)/Library/pnpm", "/opt/homebrew/bin", "/usr/local/bin"]
+        for root in ["\(home)/.nvm/versions/node", "\(home)/.local/share/mise/installs/node",
+                     "\(home)/.asdf/installs/nodejs"] {
+            for version in (try? FileManager.default.contentsOfDirectory(atPath: root)) ?? [] {
+                managedDirectories.append("\(root)/\(version)/bin")
+            }
+        }
+        return (candidates + managedDirectories + pathEntries).map { "\($0)/\(name)" }.first {
             FileManager.default.isExecutableFile(atPath: $0)
         }
     }
 
     nonisolated private static func title(for id: String) -> String {
         switch id {
-        case "openai-codex": return "OpenAI · Codex"
-        case "opencode-go": return "OpenCode Go"
-        case "deepseek": return "DeepSeek API"
+        case "openai-codex": return L10n.text("provider.openai_codex")
+        case "opencode-go": return L10n.text("provider.opencode_go")
+        case "deepseek": return L10n.text("provider.deepseek")
+        case "unknown": return L10n.text("provider.unknown")
         case "opencode-free": return "OpenCode Free"
+        case "openai": return "OpenAI"
+        case "anthropic": return "Anthropic"
+        case "google": return "Google AI"
         case "openrouter": return "OpenRouter"
         case "copilot": return "GitHub Copilot"
         default: return id.replacingOccurrences(of: "-", with: " ").capitalized
@@ -503,14 +623,14 @@ struct MonitorView: View {
                 .allowsHitTesting(false)
         }
         .contextMenu {
-            Button("Обновить все источники") { model.refresh() }
-            Menu("Интервал обновления") {
+            Button(L10n.text("action.refresh")) { model.refresh() }
+            Menu(L10n.text("menu.refresh.interval")) {
                 ForEach([15, 30, 60, 120], id: \.self) { value in
-                    Button("\(value) секунд" + (model.interval == value ? " ✓" : "")) { model.interval = value; model.schedule() }
+                    Button(L10n.format("menu.seconds", value) + (model.interval == value ? " ✓" : "")) { model.interval = value; model.schedule() }
                 }
             }
             Divider()
-            Button("Выход") { NSApp.terminate(nil) }
+            Button(L10n.text("action.quit")) { NSApp.terminate(nil) }
         }
     }
 
@@ -528,15 +648,15 @@ struct MonitorView: View {
             Button { model.refresh() } label: {
                 Image(systemName: "arrow.clockwise").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white.opacity(0.86))
                     .padding(8).background(.white.opacity(0.12), in: Circle())
-            }.buttonStyle(.plain).help("Обновить все источники")
+            }.buttonStyle(.plain).help(L10n.text("action.refresh"))
         }
     }
 
     private var statusText: String {
-        guard let app = selectedApp else { return "Нет источников" }
+        guard let app = selectedApp else { return L10n.text("app.status.none") }
         let providerIds = model.providers(for: app)
         let connected = providerIds.compactMap { model.snapshot.providerUsage[$0] }.filter(\.connected).count
-        return connected > 0 ? "\(connected) провайдер(а) подключены" : "Ожидание данных"
+        return connected > 0 ? L10n.format("app.status.connected", connected) : L10n.text("app.status.waiting")
     }
 
     private var appTabs: some View {
@@ -562,7 +682,8 @@ struct MonitorView: View {
     @ViewBuilder private func providerCards(for app: AppDefinition) -> some View {
         let ids = model.providers(for: app)
         if ids.isEmpty {
-            emptyCard(app.adapter == "provider-view" ? "Сессий этого провайдера пока нет" : "Провайдеры ещё не обнаружены")
+            emptyCard(model.snapshot.sourceErrors[app.id]
+                      ?? (app.adapter == "provider-view" ? L10n.text("session.none") : L10n.text("provider.none")))
         } else {
             VStack(spacing: 11) {
                 ForEach(ids, id: \.self) { providerId in
@@ -574,7 +695,7 @@ struct MonitorView: View {
 
     private func providerCard(_ providerId: String, app: AppDefinition) -> some View {
         let provider = model.providerDefinition(providerId)
-        let usage = model.snapshot.providerUsage[providerId] ?? ProviderSnapshot(error: "Usage-адаптер не подключён")
+        let usage = model.snapshot.providerUsage[providerId] ?? ProviderSnapshot(error: L10n.text("error.usage.adapter_missing"))
         let sessions = model.sessions(for: app, providerId: providerId)
         let aggregate = aggregateUsage(model.allSessions(for: app, providerId: providerId))
         return VStack(alignment: .leading, spacing: 10) {
@@ -586,9 +707,9 @@ struct MonitorView: View {
                     .padding(.horizontal, 7).padding(.vertical, 3).background(.white.opacity(0.1), in: Capsule())
             }
             Divider().overlay(.white.opacity(0.09))
-            sectionTitle("USAGE")
+            sectionTitle(L10n.text("section.usage"))
             if usage.metrics.isEmpty {
-                emptyCard(usage.error ?? "Usage ещё не получен")
+                emptyCard(usage.error.map(L10n.displayError) ?? L10n.text("usage.waiting"))
             } else {
                 VStack(spacing: 0) {
                     ForEach(Array(usage.metrics.enumerated()), id: \.element.id) { index, metric in
@@ -599,9 +720,9 @@ struct MonitorView: View {
             }
             if providerId == "deepseek", aggregate.tokens > 0 {
                 HStack {
-                    Text("СЕССИИ · 30 ДНЕЙ").font(.system(size: 8, weight: .bold)).tracking(0.7).foregroundStyle(.white.opacity(0.48))
+                    Text(L10n.text("usage.sessions.30d")).font(.system(size: 8, weight: .bold)).tracking(0.7).foregroundStyle(.white.opacity(0.48))
                     Spacer()
-                    Text("\(compact(aggregate.tokens)) токенов · \(aggregate.cost.map { String(format: "$%.2f", $0) } ?? "цена н/д")")
+                    Text(L10n.format("usage.tokens.cost", compact(aggregate.tokens), aggregate.cost.map { String(format: "$%.2f", $0) } ?? L10n.text("usage.cost.unavailable")))
                         .font(.system(size: 9, weight: .medium, design: .rounded)).foregroundStyle(.white.opacity(0.68))
                 }
             }
@@ -610,17 +731,17 @@ struct MonitorView: View {
             }
             Divider().overlay(.white.opacity(0.09))
             HStack {
-                sectionTitle("ПОСЛЕДНИЕ СЕССИИ")
+                sectionTitle(L10n.text("section.recent"))
                 Spacer()
-                Text(app.adapter == "provider-view" ? "ВСЕ ПРИЛОЖЕНИЯ" : app.title.uppercased())
+                Text(app.adapter == "provider-view" ? L10n.text("section.all_apps") : app.title.uppercased())
                     .font(.system(size: 7, weight: .bold)).tracking(0.55).foregroundStyle(.white.opacity(0.4))
             }
             if sessions.isEmpty {
-                Text("Сессий этого провайдера пока нет").font(.system(size: 10)).foregroundStyle(.white.opacity(0.48)).padding(.vertical, 4)
+                Text(L10n.text("session.none")).font(.system(size: 10)).foregroundStyle(.white.opacity(0.48)).padding(.vertical, 4)
             } else {
                 VStack(spacing: 2) { ForEach(sessions) { session in
                     Button { open(session) } label: { sessionRow(session, showApp: app.adapter == "provider-view") }
-                        .buttonStyle(.plain).help("Открыть сессию в \(session.appTitle)")
+                        .buttonStyle(.plain).help(L10n.format("action.open_session", session.appTitle))
                 } }
             }
         }
@@ -635,7 +756,7 @@ struct MonitorView: View {
                 HStack(alignment: .firstTextBaseline) {
                     Text(metric.label).font(.system(size: 9, weight: .bold)).tracking(0.7).foregroundStyle(.white.opacity(0.72))
                     Spacer()
-                    Text("\(Int(percent.rounded()))% использовано").font(.system(size: 10, weight: .semibold, design: .rounded))
+                    Text(L10n.format("usage.percent", Int(percent.rounded()))).font(.system(size: 10, weight: .semibold, design: .rounded))
                 }
                 GeometryReader { proxy in
                     ZStack(alignment: .leading) {
@@ -645,7 +766,7 @@ struct MonitorView: View {
                     }
                 }.frame(height: 6)
                 HStack {
-                    Text("Осталось \(Int(max(0, 100 - percent).rounded()))%")
+                    Text(L10n.format("usage.remaining", Int(max(0, 100 - percent).rounded())))
                     Spacer()
                     Text(resetText(metric.resetAt))
                 }.font(.system(size: 8, weight: .medium)).foregroundStyle(.white.opacity(0.49))
@@ -697,6 +818,9 @@ struct MonitorView: View {
             directory = session.workingDirectory ?? home
         case "hermes":
             arguments = ["--in", session.workingDirectory ?? home, "--resume", session.id.replacingOccurrences(of: "hermes-", with: ""), "chat"]
+        case "openclaw":
+            arguments = ["tui", session.id]
+            directory = session.workingDirectory ?? home
         default:
             return
         }
@@ -721,7 +845,7 @@ struct MonitorView: View {
 
     private var footer: some View {
         HStack {
-            Text("ОБНОВЛЕНИЕ · \(model.interval) СЕК").font(.system(size: 7, weight: .bold)).tracking(0.65)
+            Text(L10n.format("footer.refresh", model.interval)).font(.system(size: 7, weight: .bold)).tracking(0.65)
             Spacer()
             Text(model.snapshot.updatedAt.formatted(date: .omitted, time: .shortened))
                 .font(.system(size: 8, weight: .medium, design: .monospaced))
@@ -734,16 +858,17 @@ struct MonitorView: View {
         case "hermes": return "sparkles"
         case "opencode": return "terminal"
         case "deepseek": return "waveform.path"
+        case "openclaw": return "pawprint"
         default: return "square.grid.2x2"
         }
     }
 
     private func resetText(_ date: Date?) -> String {
-        guard let date else { return "сброс —" }
+        guard let date else { return L10n.text("usage.reset.none") }
         let seconds = max(0, Int(date.timeIntervalSinceNow))
-        if seconds < 3600 { return "сброс через \(max(1, seconds / 60)) мин" }
-        if seconds < 86400 { return "сброс через \(seconds / 3600) ч \((seconds % 3600) / 60) мин" }
-        return "сброс через \(seconds / 86400) д \((seconds % 86400) / 3600) ч"
+        if seconds < 3600 { return L10n.format("usage.reset.minutes", max(1, seconds / 60)) }
+        if seconds < 86400 { return L10n.format("usage.reset.hours", seconds / 3600, (seconds % 3600) / 60) }
+        return L10n.format("usage.reset.days", seconds / 86400, (seconds % 86400) / 3600)
     }
 
     private func aggregateUsage(_ sessions: [MonitorSession]) -> (tokens: Int, cost: Double?) {
