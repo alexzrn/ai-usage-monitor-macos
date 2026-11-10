@@ -25,8 +25,13 @@ try:
         providers["opencode-go"] = {"ok": bool(windows), "windows": windows}
     else:
         providers["opencode-go"] = {"ok": False, "error": "Нет данных OpenCode Go"}
-except Exception:
-    providers["opencode-go"] = {"ok": False, "error": "OpenCode Go недоступен"}
+except Exception as exc:
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    if status is not None:
+        error = f"OpenCode Go API вернул HTTP {status}"
+    else:
+        error = "Не удалось связаться с Usage API OpenCode Go"
+    providers["opencode-go"] = {"ok": False, "error": error}
 
 try:
     from hermes_cli.runtime_provider import resolve_runtime_provider
