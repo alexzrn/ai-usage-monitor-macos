@@ -125,6 +125,7 @@ struct MonitorSnapshot {
     var providerUsage: [String: ProviderSnapshot] = [:]
     var sourceProviderIds: [String: [String]] = [:]
     var sourceErrors: [String: String] = [:]
+    var availableAppIds: Set<String> = []
     var updatedAt = Date()
 }
 
@@ -159,8 +160,19 @@ final class MonitorModel: ObservableObject {
         let registrySnapshot = registry
         Task.detached(priority: .utility) {
             let data = Self.collect(registry: registrySnapshot)
-            await MainActor.run { self.snapshot = data; self.loading = false }
+            await MainActor.run {
+                self.snapshot = data
+                if !data.availableAppIds.contains(self.selectedApp),
+                   let firstAvailable = self.visibleApps.first {
+                    self.selectedApp = firstAvailable.id
+                }
+                self.loading = false
+            }
         }
+    }
+
+    var visibleApps: [AppDefinition] {
+        registry.apps.filter { snapshot.availableAppIds.contains($0.id) }
     }
 
     func sessions(for app: AppDefinition, providerId: String) -> [MonitorSession] {
@@ -192,7 +204,12 @@ final class MonitorModel: ObservableObject {
         let hermes = readHermes()
         let opencode = readOpenCode()
         let openclaw = readOpenClaw()
-        let claude = readClaudeCode()
+        let claude: (sessions: [MonitorSession], usage: ProviderSnapshot)
+        if registry.apps.contains(where: { $0.id == "claude" }) {
+            claude = readClaudeCode()
+        } else {
+            claude = ([], ProviderSnapshot())
+        }
         let sessions = (codex.sessions + hermes + opencode + openclaw.sessions + claude.sessions).sorted {
             ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast)
         }
@@ -211,9 +228,20 @@ final class MonitorModel: ObservableObject {
         for session in sessions where usage[session.providerId] == nil {
             usage[session.providerId] = ProviderSnapshot(connected: false, error: "Usage недоступен для этого провайдера")
         }
+        let home = NSHomeDirectory()
+        let availableApps = Set(registry.apps.compactMap { app -> String? in
+            if app.adapter == "provider-view" {
+                let providerAvailable = app.providerIds.contains { usage[$0]?.connected == true }
+                let hasSessions = sessions.contains { app.providerIds.contains($0.providerId) }
+                return providerAvailable || hasSessions ? app.id : nil
+            }
+            let cli = executableForAction(app.id, home: home)
+            return cli != nil ? app.id : nil
+        })
         return MonitorSnapshot(sessions: sessions, providerUsage: usage,
                                sourceProviderIds: ["openclaw": Array(openclaw.usage.keys)],
-                               sourceErrors: openclaw.error.map { ["openclaw": $0] } ?? [:], updatedAt: Date())
+                               sourceErrors: openclaw.error.map { ["openclaw": $0] } ?? [:],
+                               availableAppIds: availableApps, updatedAt: Date())
     }
 
     nonisolated private static func readClaudeCode() -> (sessions: [MonitorSession], usage: ProviderSnapshot) {
@@ -749,7 +777,7 @@ struct MonitorView: View {
     private var appTabs: some View {
         ScrollView(.horizontal) {
             HStack(spacing: 4) {
-                ForEach(model.registry.apps) { app in
+                ForEach(model.visibleApps) { app in
                     Button { model.selectedApp = app.id } label: {
                         HStack(spacing: 6) {
                             Image(systemName: icon(for: app.id)).font(.system(size: 10, weight: .semibold))
