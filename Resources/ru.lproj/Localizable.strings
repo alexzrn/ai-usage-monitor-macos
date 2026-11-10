@@ -27,6 +27,10 @@
 "usage.month" = "МЕСЯЦ";
 "usage.codex.plan" = "План Codex · %@";
 "usage.opencode.plan" = "Лимиты аккаунта OpenCode Go";
+"usage.claude.input" = "ВХОДНЫЕ ТОКЕНЫ";
+"usage.claude.output" = "ВЫХОДНЫЕ ТОКЕНЫ";
+"usage.claude.cache" = "ТОКЕНЫ КЭША";
+"usage.claude.sessions" = "Сохранённых локальных транскриптов: %d";
 "usage.openclaw.sessions" = "Сессии OpenClaw";
 "usage.sessions.30d" = "СЕССИИ · 30 ДНЕЙ";
 "usage.tokens.cost" = "%@ токенов · %@";
@@ -35,6 +39,7 @@
 "action.open_session" = "Открыть сессию в %@";
 "error.codex.history_missing" = "Локальная история Codex не найдена";
 "error.codex.limits_pending" = "Лимиты появятся после следующего ответа Codex";
+"error.claude.history_missing" = "Локальные транскрипты Claude Code не найдены";
 "error.hermes.missing" = "Hermes CLI не найден";
 "error.usage.adapter_missing" = "Адаптер Usage не настроен";
 "error.usage.deepseek" = "Не удалось получить баланс DeepSeek";
@@ -47,6 +52,7 @@
 "error.http_status" = "Usage API ответил HTTP %@";
 "provider.deepseek" = "DeepSeek API";
 "provider.openai_codex" = "OpenAI · Codex";
+"provider.claude_local" = "Claude Code · локальная статистика";
 "provider.opencode_go" = "OpenCode Go";
 "provider.unknown" = "Неизвестный провайдер";
 "label.updated" = "Обновлено %@";

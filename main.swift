@@ -128,6 +128,13 @@ struct MonitorSnapshot {
     var updatedAt = Date()
 }
 
+private func compactCount(_ value: Int) -> String {
+    if value >= 1_000_000 { return String(format: "%.1fM", Double(value) / 1_000_000) }
+    if value >= 10_000 { return String(format: "%.0fk", Double(value) / 1_000) }
+    if value >= 1_000 { return String(format: "%.1fk", Double(value) / 1_000) }
+    return "\(value)"
+}
+
 @MainActor
 final class MonitorModel: ObservableObject {
     @Published var registry = Registry.load()
@@ -185,12 +192,14 @@ final class MonitorModel: ObservableObject {
         let hermes = readHermes()
         let opencode = readOpenCode()
         let openclaw = readOpenClaw()
-        let sessions = (codex.sessions + hermes + opencode + openclaw.sessions).sorted {
+        let claude = readClaudeCode()
+        let sessions = (codex.sessions + hermes + opencode + openclaw.sessions + claude.sessions).sorted {
             ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast)
         }
 
         var usage = readProviderUsage()
         usage["openai-codex"] = codex.usage
+        usage["claude-code-local"] = claude.usage
         for (provider, snapshot) in openclaw.usage where usage[provider] == nil {
             usage[provider] = snapshot
         }
@@ -205,6 +214,82 @@ final class MonitorModel: ObservableObject {
         return MonitorSnapshot(sessions: sessions, providerUsage: usage,
                                sourceProviderIds: ["openclaw": Array(openclaw.usage.keys)],
                                sourceErrors: openclaw.error.map { ["openclaw": $0] } ?? [:], updatedAt: Date())
+    }
+
+    nonisolated private static func readClaudeCode() -> (sessions: [MonitorSession], usage: ProviderSnapshot) {
+        let root = URL(fileURLWithPath: "\(NSHomeDirectory())/.claude/projects", isDirectory: true)
+        guard let projects = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) else {
+            return ([], ProviderSnapshot(error: L10n.text("error.claude.history_missing")))
+        }
+        var sessions: [MonitorSession] = []
+        var totalInput = 0
+        var totalOutput = 0
+        var totalCacheRead = 0
+        var totalCacheWrite = 0
+        var transcriptCount = 0
+        for project in projects where !project.lastPathComponent.hasPrefix(".") {
+            guard let files = try? FileManager.default.contentsOfDirectory(at: project, includingPropertiesForKeys: [.contentModificationDateKey]) else { continue }
+            for file in files where file.pathExtension == "jsonl" && !file.lastPathComponent.contains("subagent") {
+                guard let handle = try? FileHandle(forReadingFrom: file) else { continue }
+                defer { try? handle.close() }
+                var pending = Data()
+                var title: String?
+                var cwd: String?
+                var sessionId = file.deletingPathExtension().lastPathComponent
+                var model = "—"
+                var updatedAt: Date?
+                var usageByMessage: [String: (Int, Int, Int, Int)] = [:]
+                func consume(_ data: Data) {
+                    guard let row = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+                    if let id = row["sessionId"] as? String { sessionId = id }
+                    if let directory = row["cwd"] as? String { cwd = directory }
+                    if let date = parseDate(row["timestamp"]) { updatedAt = max(updatedAt ?? .distantPast, date) }
+                    if row["type"] as? String == "ai-title", let value = row["aiTitle"] as? String { title = shortTitle(value) }
+                    guard row["type"] as? String == "assistant", let message = row["message"] as? [String: Any],
+                          let usage = message["usage"] as? [String: Any] else { return }
+                    let messageId = message["id"] as? String ?? UUID().uuidString
+                    model = message["model"] as? String ?? model
+                    let input = (usage["input_tokens"] as? NSNumber)?.intValue ?? 0
+                    let output = (usage["output_tokens"] as? NSNumber)?.intValue ?? 0
+                    let cacheRead = (usage["cache_read_input_tokens"] as? NSNumber)?.intValue ?? 0
+                    let cacheWrite = (usage["cache_creation_input_tokens"] as? NSNumber)?.intValue ?? 0
+                    usageByMessage[messageId] = (input, output, cacheRead, cacheWrite)
+                }
+                while true {
+                    let chunk = (try? handle.read(upToCount: 64 * 1024)) ?? nil
+                    guard let chunk, !chunk.isEmpty else { break }
+                    pending.append(chunk)
+                    while let newline = pending.firstIndex(of: 10) {
+                        consume(pending.prefix(upTo: newline))
+                        pending.removeSubrange(...newline)
+                    }
+                }
+                if !pending.isEmpty { consume(pending) }
+                guard !usageByMessage.isEmpty else { continue }
+                let totals = usageByMessage.values.reduce((0, 0, 0, 0)) { ($0.0 + $1.0, $0.1 + $1.1, $0.2 + $1.2, $0.3 + $1.3) }
+                totalInput += totals.0
+                totalOutput += totals.1
+                totalCacheRead += totals.2
+                totalCacheWrite += totals.3
+                transcriptCount += 1
+                let directory = cwd ?? project.lastPathComponent
+                sessions.append(MonitorSession(id: sessionId, appId: "claude", appTitle: "Claude Code",
+                                               providerId: "claude-code-local", title: title ?? "Claude Code session",
+                                               project: shortPath(directory), workingDirectory: directory, model: model,
+                                               updatedAt: updatedAt, tokenCount: totals.0 + totals.1 + totals.2 + totals.3, costUSD: nil))
+            }
+        }
+        sessions.sort { ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast) }
+        var metrics: [UsageMetric] = []
+        if transcriptCount > 0 {
+            metrics.append(UsageMetric(id: "input", label: L10n.text("usage.claude.input"), value: compactCount(totalInput)))
+            metrics.append(UsageMetric(id: "output", label: L10n.text("usage.claude.output"), value: compactCount(totalOutput)))
+            metrics.append(UsageMetric(id: "cache", label: L10n.text("usage.claude.cache"), value: compactCount(totalCacheRead + totalCacheWrite)))
+        }
+        let snapshot = ProviderSnapshot(connected: transcriptCount > 0, metrics: metrics, updatedAt: Date(),
+                                        error: transcriptCount == 0 ? L10n.text("error.claude.history_missing") : nil,
+                                        note: L10n.format("usage.claude.sessions", transcriptCount))
+        return (sessions, snapshot)
     }
 
     nonisolated private static func run(_ executable: String, _ arguments: [String],
@@ -502,6 +587,7 @@ final class MonitorModel: ObservableObject {
         switch app {
         case "hermes": candidates = ["\(home)/.local/bin/hermes", "/opt/homebrew/bin/hermes", "/usr/local/bin/hermes"]
         case "codex": candidates = ["\(home)/.local/bin/codex", "/opt/homebrew/bin/codex", "/usr/local/bin/codex"]
+        case "claude": candidates = ["\(home)/.local/bin/claude", "/opt/homebrew/bin/claude", "/usr/local/bin/claude"]
         case "openclaw": candidates = ["\(home)/.local/bin/openclaw", "\(home)/.npm-global/bin/openclaw", "/opt/homebrew/bin/openclaw", "/usr/local/bin/openclaw"]
         default: candidates = ["\(home)/.local/bin/opencode", "/opt/homebrew/bin/opencode", "/usr/local/bin/opencode"]
         }
@@ -529,6 +615,7 @@ final class MonitorModel: ObservableObject {
         case "openai-codex": return L10n.text("provider.openai_codex")
         case "opencode-go": return L10n.text("provider.opencode_go")
         case "deepseek": return L10n.text("provider.deepseek")
+        case "claude-code-local": return L10n.text("provider.claude_local")
         case "unknown": return L10n.text("provider.unknown")
         case "opencode-free": return "OpenCode Free"
         case "openai": return "OpenAI"
@@ -813,6 +900,9 @@ struct MonitorView: View {
         switch session.appId {
         case "codex":
             arguments = ["--cd", session.workingDirectory ?? home, "resume", session.id]
+        case "claude":
+            arguments = ["--resume", session.id]
+            directory = session.workingDirectory ?? home
         case "opencode":
             arguments = ["--session", session.id.replacingOccurrences(of: "opencode-", with: "")]
             directory = session.workingDirectory ?? home
@@ -859,6 +949,7 @@ struct MonitorView: View {
         case "opencode": return "terminal"
         case "deepseek": return "waveform.path"
         case "openclaw": return "pawprint"
+        case "claude": return "bubble.left.and.bubble.right"
         default: return "square.grid.2x2"
         }
     }

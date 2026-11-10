@@ -27,6 +27,10 @@
 "usage.month" = "MONTH";
 "usage.codex.plan" = "Codex plan · %@";
 "usage.opencode.plan" = "OpenCode Go account limits";
+"usage.claude.input" = "INPUT TOKENS";
+"usage.claude.output" = "OUTPUT TOKENS";
+"usage.claude.cache" = "CACHE TOKENS";
+"usage.claude.sessions" = "%d saved local transcripts";
 "usage.openclaw.sessions" = "OpenClaw sessions";
 "usage.sessions.30d" = "SESSIONS · 30 DAYS";
 "usage.tokens.cost" = "%@ tokens · %@";
@@ -35,6 +39,7 @@
 "action.open_session" = "Open session in %@";
 "error.codex.history_missing" = "Local Codex history was not found";
 "error.codex.limits_pending" = "Limits appear after the next Codex response";
+"error.claude.history_missing" = "No local Claude Code transcripts found";
 "error.hermes.missing" = "Hermes CLI was not found";
 "error.usage.adapter_missing" = "No usage adapter is configured";
 "error.usage.deepseek" = "Could not fetch DeepSeek balance";
@@ -47,6 +52,7 @@
 "error.http_status" = "Usage API returned HTTP %@";
 "provider.deepseek" = "DeepSeek API";
 "provider.openai_codex" = "OpenAI · Codex";
+"provider.claude_local" = "Claude Code · local usage";
 "provider.opencode_go" = "OpenCode Go";
 "provider.unknown" = "Unknown";
 "label.updated" = "Updated %@";

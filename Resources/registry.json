@@ -2,10 +2,12 @@
   "providers": [
     { "id": "openai-codex", "title": "OpenAI · Codex", "usageAdapter": "codex-rate-limits" },
     { "id": "opencode-go", "title": "OpenCode Go", "usageAdapter": "hermes-opencode-go" },
-    { "id": "deepseek", "title": "DeepSeek API", "usageAdapter": "deepseek-balance" }
+    { "id": "deepseek", "title": "DeepSeek API", "usageAdapter": "deepseek-balance" },
+    { "id": "claude-code-local", "title": "Claude Code · local usage", "usageAdapter": "claude-transcript-tokens" }
   ],
   "apps": [
     { "id": "codex", "title": "Codex", "adapter": "codex", "providerIds": ["openai-codex"] },
+    { "id": "claude", "title": "Claude Code", "adapter": "claude", "providerIds": ["claude-code-local"] },
     { "id": "hermes", "title": "Hermes", "adapter": "hermes", "providerIds": ["opencode-go", "deepseek"], "discoverProviders": true },
     { "id": "opencode", "title": "OpenCode", "adapter": "opencode", "providerIds": ["opencode-go", "deepseek"], "discoverProviders": true },
     { "id": "openclaw", "title": "OpenClaw", "adapter": "openclaw", "providerIds": [], "discoverProviders": true },

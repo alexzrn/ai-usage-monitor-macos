@@ -33,6 +33,7 @@ Linux desktop surfaces are DE-specific. Start with one supported target selected
 | Agent/provider | macOS | Windows | Linux |
 | --- | --- | --- | --- |
 | Codex | Local CLI and `~/.codex` SQLite/rollout reader | Not implemented | Not implemented |
+| Claude Code | Local CLI and retained `~/.claude/projects` JSONL transcripts; token totals are transcript-derived, not account quota | Not implemented | Not implemented |
 | Hermes | CLI and `~/.hermes/state.db` reader | Not implemented | Not implemented |
 | OpenCode | CLI and local API reader | Not implemented | Not implemented |
 | OpenClaw | CLI JSON sessions, provider usage JSON, TUI session target | Not implemented | Not implemented |
