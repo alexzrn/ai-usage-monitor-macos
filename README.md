@@ -48,7 +48,7 @@ The app uses SwiftUI and AppKit. It refreshes every 30 seconds by default. Right
 
 ## Language
 
-The interface follows the macOS preferred language: Russian and Simplified Chinese are supported. English is the default for all other languages. Product names, model names, and provider names remain in their original form.
+The interface follows the macOS preferred language: Russian and Simplified Chinese are supported. English is the default for all other languages. Product names, model names, and provider names remain in their original form. App tabs appear only when their local CLI is detected; provider tabs appear when their account source is available.
 
 ## Discovery and extension
 
